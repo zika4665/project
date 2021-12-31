@@ -1,0 +1,132 @@
+import tensorflow as tf
+import numpy as np
+import os
+import sklearn
+from tensorflow import keras
+from tensorflow.keras import models, layers
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Activation, Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.metrics import categorical_crossentropy
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import roc_curve
+import matplotlib.pyplot as plt
+import itertools
+
+dataset = tf.keras.preprocessing.image_dataset_from_directory(
+    "ANN_pics",
+    labels="inferred",
+    label_mode="int",
+    color_mode="rgb",
+    shuffle=True,
+    image_size=(255,255),
+    batch_size=64
+)
+def get_datasets(ds, train_split=0.8, val_split=0.1, test_split=0.1, shuffle=True):
+    assert (train_split + test_split + val_split) == 1
+
+    ds_size = len(ds)
+
+    train_size = int(train_split * ds_size)
+    val_size = int(val_split * ds_size)
+
+    train_ds = ds.take(train_size)
+    val_ds = ds.skip(train_size).take(val_size)
+    test_ds = ds.skip(train_size).skip(val_size)
+
+    return train_ds, val_ds, test_ds
+
+train_ds, val_ds, test_ds = get_datasets(dataset)
+y_test = np.concatenate([y for x, y in test_ds], axis=0)
+
+resize_and_rescale = tf.keras.Sequential([
+    layers.experimental.preprocessing.Resizing(255,255),
+    layers.experimental.preprocessing.Rescaling(1./255),
+])
+
+model =  Sequential([
+    resize_and_rescale,
+    layers.Conv2D(32, kernel_size = (3,3), activation='relu', input_shape=(255, 255,3)),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64,  kernel_size = (3,3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64,  kernel_size = (3,3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64, (3, 3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Conv2D(64, (3, 3), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu',kernel_regularizer= tf.keras.regularizers.l1(0.001)),
+    layers.Dense(units=84, activation='tanh'),
+    Dense(units=40, activation='relu',kernel_regularizer= tf.keras.regularizers.l1(0.001)),
+    layers.Dense(3, activation='softmax'),])
+
+model.compile(optimizer=Adam(learning_rate=0.0002), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+history = model.fit(train_ds, batch_size=64, validation_data=val_ds, verbose=2, epochs=50)
+
+predictions = model.predict(test_ds, batch_size=64, verbose=0)
+predictions_1 = np.argmax(predictions,axis = -1)
+
+
+cm = confusion_matrix(y_true=y_test, y_pred=predictions_1)
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, cm[i, j],
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+cm_plot_labels = ['normal','pneumonia']
+plot_confusion_matrix(cm=cm, classes=cm_plot_labels, title='Confusion Matrix')
+
+plt.plot(history.history["accuracy"])
+plt.title("model accuracy")
+plt.ylabel("accuracy")
+plt.xlabel("epoch")
+plt.legend(["train"],loc='upper left')
+plt.show
+
+plt.plot(history.history["loss"])
+plt.title("model loss")
+plt.ylabel("loss")
+plt.xlabel("epoch")
+plt.legend(["train"],loc='upper left')
+plt.show
+
+fpr, tpr, thresholds = roc_curve(y_test, predictions_1)
+plt.figure(1)
+plt.plot([0, 1], [0, 1], 'y--')
+plt.plot(fpr, tpr, marker='.')
+plt.xlabel('False positive rate')
+plt.ylabel('True positive rate')
+plt.title('ROC curve')
+plt.show()
